@@ -189,13 +189,15 @@ def extract_comment_data(comment, POST_URL):
 
     # Comment text and response_int
     try:
-        text_elem = comment.find_element(By.XPATH, ".//div[@dir='auto']")
-        comment_text = text_elem.text.strip()
-        response_int = ''.join(re.findall(r'\d+', comment_text))
+        text_elems = comment.find_elements(By.XPATH, ".//div[@dir='auto']")
+        comment_text = "\n".join([e.text.strip() for e in text_elems if e.text.strip()])
+        digits = re.findall(r'\d+', comment_text)
+        response_int = ''.join(digits) if digits else "N/A"
     except Exception:
-        pass
+        comment_text = ""
+        response_int = "N/A"
 
-    return [profile_link, username, response_int, comment_link]
+    return [profile_link, username, comment_text, response_int, comment_link]
 
 
 
@@ -216,7 +218,8 @@ def process_all_comments(driver, comment_container, POST_URL):
                          [profile_link, username, response_int, comment_link].
     """
     expand_see_more_buttons(driver, comment_container)
-    comments = comment_container.find_elements(By.XPATH, ".//div[contains(@class, 'x1y1aw1k')]")
+    comments = comment_container.find_elements(By.XPATH, ".//div[@role='article']")
+    print(f"Found {len(comments)} comments.")
     
     data = []
     for comment in comments:
@@ -232,19 +235,18 @@ def clean_and_save_comments(data, output_path):
     """
     Cleans comment data and saves it to a CSV file.
 
-    - Removes rows with NaN values
-    - Drops rows where any field is empty or marked "N/A"
-    - Deduplicates entries by all main columns
+    - Removes rows with empty fields (except Response)
+    - Deduplicates entries
     - Resets index
-    - Saves result to the given file path
-
-    Args:
-        data (list): A list of lists, each representing a comment.
-        output_path (str): Full path to the CSV output file.
+    - Saves as UTF-8 with BOM for Excel compatibility
     """
-    df = pd.DataFrame(data, columns=["User Profile", "Username", "Response (int)", "Comment Link"])
+    df = pd.DataFrame(data, columns=[
+        "User Profile", "Username", "Comment Text", "Response (int)", "Comment Link"
+    ])
     df = df.dropna()
-    df = df[~df.isin(["", "N/A"]).any(axis=1)]
-    df = df.drop_duplicates(subset=["User Profile", "Username", "Response (int)", "Comment Link"], keep='first')
+    df = df[~df[["User Profile", "Username", "Comment Text", "Comment Link"]].isin(["", "N/A"]).any(axis=1)]
+    df = df.drop_duplicates(subset=[
+        "User Profile", "Username", "Comment Text", "Response (int)", "Comment Link"
+    ], keep='first')
     df = df.reset_index(drop=True)
-    df.to_csv(output_path, index=False)
+    df.to_csv(output_path, index=False, encoding='utf-8-sig')
